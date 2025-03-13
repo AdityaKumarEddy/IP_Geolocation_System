@@ -1,0 +1,199 @@
+import bcrypt
+import csv
+import re
+import requests
+import os
+import getpass
+
+# CSV file path
+CSV_FILE = 'Adityas_data.csv'
+
+# hash passwords
+def hash_password(password):
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+# checking hashed password
+def check_password(hashed_password, user_password):
+    return bcrypt.checkpw(user_password.encode('utf-8'), hashed_password)
+
+# Validate email format
+def is_valid_email(email):
+    return re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', email)
+
+# Validate password format
+def is_valid_password(password):
+    return (len(password) >= 8 and re.search(r'[A-Z]', password) and
+            re.search(r'[a-z]', password) and re.search(r'[0-9]', password) and
+            re.search(r'[!@#$%^&*(),.?":{}|<>]', password))
+
+# Register a new user
+def register():
+    email = input("Enter your email: ")
+    
+    if not is_valid_email(email):
+        print("Invalid email format.")
+        return
+    
+    # getpass to hide password 
+    password = getpass.getpass("Enter your password: ")
+    
+    if not is_valid_password(password):
+        print("Password must be at least 8 characters long, include an uppercase letter, lowercase letter, number, and special character.")
+        return
+
+    hashed_pwd = hash_password(password)
+    
+    security_question = input("Enter a security question: ")
+    security_answer = input("Enter your answer: ")
+    
+    # Check if the email already exists in CSV
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, mode='r') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                if row['email'] == email:
+                    print("Email already registered.")
+                    return
+    
+    # Store user data in CSV
+    with open(CSV_FILE, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([email, hashed_pwd.decode('utf-8'), security_question, security_answer])
+        print("Registration successful!")
+
+# Login function
+def login():
+    email = input("Enter your email: ")
+    
+    if not is_valid_email(email):
+        print("Invalid email format.")
+        return
+    
+    # Check if email exists in CSV
+    user_found = False
+    with open(CSV_FILE, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            if row['email'] == email:
+                user_found = True
+                attempts = 5
+                while attempts > 0:
+                    # Use getpass to hide password input
+                    password = getpass.getpass("Enter your password: ")
+                    if check_password(row['password'].encode('utf-8'), password):
+                        print("Login successful!")
+                        ip_geolocation()
+                        return
+                    else:
+                        attempts -= 1
+                        print(f"Incorrect password. {attempts} attempts remaining.")
+                        if attempts == 0:
+                            print("Too many failed login attempts. Exiting...")
+                            return
+                break
+    
+    if not user_found:
+        print("Email not registered.")
+
+# Forgot password function
+def forgot_password():
+    email = input("Enter your registered email: ")
+    
+    with open(CSV_FILE, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            if row['email'] == email:
+                answer = input(f"Security Question: {row['security_question']}? ")
+                if answer == row['security_answer']:
+                    # Use getpass to hide password input
+                    new_password = getpass.getpass("Enter your new password: ")
+                    if not is_valid_password(new_password):
+                        print("Password must meet security criteria.")
+                        return
+                    
+                    hashed_pwd = hash_password(new_password)
+                    
+                    # Update CSV file with new password
+                    rows = []
+                    with open(CSV_FILE, mode='r') as file:
+                        reader = csv.DictReader(file)
+                        for row in reader:
+                            if row['email'] == email:
+                                row['password'] = hashed_pwd.decode('utf-8')
+                            rows.append(row)
+                    
+                    with open(CSV_FILE, mode='w', newline='') as file:
+                        fieldnames = ['email', 'password', 'security_question', 'security_answer']
+                        writer = csv.DictWriter(file, fieldnames=fieldnames)
+                        writer.writeheader()
+                        writer.writerows(rows)
+                        
+                    print("Password updated successfully!")
+                    return
+                else:
+                    print("Incorrect answer.")
+                    return
+    
+    print("Email not found.")
+
+# Function to get geolocation data using an IP Geolocation API
+def ip_geolocation():
+    choice = input("Do you want to use your IP or enter another IP? (enter 'my' or 'other'): ").strip().lower()
+    
+    if choice == 'my':
+        ip = requests.get('https://api.ipify.org').text
+    else:
+        ip = input("Enter the IP address: ")
+
+    try:
+        response = requests.get(f"http://ip-api.com/json/{ip}")
+        data = response.json()
+        
+        if data['status'] == 'fail':
+            print("Invalid IP address or data not found.")
+            return
+        
+        print(f"\nGeolocation Information for IP: {ip}")
+        print(f"Country: {data['country']}")
+        print(f"City: {data['city']}")
+        print(f"Region: {data['regionName']}")
+        print(f"Latitude: {data['lat']}")
+        print(f"Longitude: {data['lon']}")
+        print(f"Timezone: {data['timezone']}")
+        print(f"ISP: {data['isp']}")
+    except requests.exceptions.RequestException:
+        print("Network error. Please check your internet connection.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+# Main menu
+def main():
+    while True:
+        print("\n--- Welcome to Aditya's IP Geolocator Tool ---")
+        print("1. Register")
+        print("2. Login")
+        print("3. Forgot Password")
+        print("4. Exit")
+        
+        choice = input("Select an option: ").strip()
+        
+        if choice == '1':
+            register()
+        elif choice == '2':
+            login()
+        elif choice == '3':
+            forgot_password()
+        elif choice == '4':
+            print("Exiting...")
+            break
+        else:
+            print("Invalid choice. Please select a valid option.")
+
+if __name__ == "__main__":
+    # Initialize CSV if it doesn't exist
+    if not os.path.exists(CSV_FILE):
+        with open(CSV_FILE, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['email', 'password', 'security_question', 'security_answer'])
+    
+    main()
